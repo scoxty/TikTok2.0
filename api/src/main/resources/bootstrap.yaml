@@ -1,0 +1,15 @@
+spring:
+  cloud:
+    nacos:
+      config:
+        server-addr: 8.134.107.55:8848
+        extension-configs:
+          - data-id: api-service-dev.yaml
+            group: tiktok
+            refresh: true
+        username: nacos
+        password: nacos
+        shared-configs:
+          - data-id: middleware-redis-dev.yaml
+            group: tiktok
+            refresh: true

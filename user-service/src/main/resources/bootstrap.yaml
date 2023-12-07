@@ -1,0 +1,18 @@
+spring:
+  cloud:
+    nacos:
+      config:
+        server-addr: 8.134.107.55:8848
+        extension-configs:
+          - data-id: user-service-dev.yaml
+            group: tiktok
+            refresh: true
+        username: nacos
+        password: nacos
+        shared-configs:
+          - data-id: dal-mysql-dev.yaml
+            group: tiktok
+            refresh: true
+          - data-id: middleware-redis-dev.yaml
+            group: tiktok
+            refresh: true

@@ -1,0 +1,88 @@
+syntax = "proto3";
+package douyin.extra.first;
+
+// 定义Java相关
+option java_multiple_files = true;
+option java_package = "com.xty.dubbo_gen.favorite";
+option java_outer_classname = "FavoriteServiceProto";
+
+message Video {
+  int64 id = 1; // 视频唯一标识
+  User author = 2; // 视频作者信息
+  string play_url = 3; // 视频播放地址
+  string cover_url = 4; // 视频封面地址
+  int64 favorite_count = 5; // 视频的点赞总数
+  int64 comment_count = 6; // 视频的评论总数
+  bool is_favorite = 7; // true-已点赞，false-未点赞
+  string title = 8; // 视频标题
+}
+
+message User {
+  int64 id = 1; // 用户id
+  string name = 2; // 用户名称
+  int64 follow_count = 3; // 关注总数
+  int64 follower_count = 4; // 粉丝总数
+  bool is_follow = 5; // true-已关注，false-未关注
+  string avatar = 6; //用户头像
+  string background_image = 7; //用户个人页顶部大图
+  string signature = 8; //个人简介
+  int64 total_favorited = 9; //获赞数量
+  int64 work_count = 10; //作品数量
+  int64 favorite_count = 11; //点赞数量
+}
+
+message FavoriteActionRequest {
+  int64 user_id = 1; // 用户鉴权token
+  int64 video_id = 2; // 视频id
+  int32 action_type = 3; // 1-点赞，2-取消点赞
+}
+
+message FavoriteActionResponse {
+  int32 status_code = 1; // 状态码，0-成功，其他值-失败
+  string status_msg = 2; // 返回状态描述
+}
+
+message FavoriteListRequest {
+  int64 from_user_id = 1; // 调用者id
+  int64 to_user_id = 2; // 被调用者id
+}
+
+message FavoriteListResponse {
+  int32 status_code = 1; // 状态码，0-成功，其他值-失败
+  string status_msg = 2; // 返回状态描述
+  repeated Video video_list = 3; // 用户点赞视频列表
+}
+
+message IsUserFavoriteRequest {
+  int64 user_id = 1;
+  int64 video_id = 2;
+}
+
+message IsUserFavoriteResponse {
+  bool is_favorite = 1;
+}
+
+message GetVideoFavoriteCountRequest {
+  int64 video_id = 1;
+}
+
+message GetUserTotalFavoriteCountRequest {
+  int64 user_id = 1;
+}
+
+message GetUserFavoriteCountRequest {
+  int64 user_id = 1;
+}
+
+message GetFavoriteCountResponse {
+  int64 favorite_count = 1;
+}
+
+service FavoriteService {
+  rpc FavoriteAction (FavoriteActionRequest) returns (FavoriteActionResponse) {};
+  rpc GetFavoriteList (FavoriteListRequest) returns (FavoriteListResponse) {};
+  rpc GetVideoFavoriteCount (GetVideoFavoriteCountRequest) returns (GetFavoriteCountResponse) {};
+  rpc GetUserFavoriteCount (GetUserFavoriteCountRequest) returns (GetFavoriteCountResponse) {};
+  rpc GetUserTotalFavoriteCount (GetUserTotalFavoriteCountRequest) returns (GetFavoriteCountResponse) {};
+  rpc IsUserFavorite (IsUserFavoriteRequest) returns (IsUserFavoriteResponse) {};
+}
