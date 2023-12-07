@@ -1,5 +1,6 @@
 package com.xty.Interceptor.jwt;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.xty.ErrorCode;
 import com.xty.JwtUtil;
 import com.xty.RequestContextUtil;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.io.PrintWriter;
 import java.util.concurrent.Executors;
 
 @Component
@@ -28,8 +30,20 @@ public class Auth implements HandlerInterceptor {
             Claims claims = JwtUtil.parseJWT(token);
             userIdStr = claims.getSubject();
         } catch (Exception e) {
-            response.setStatus(ErrorCode.CODE_INVALID_TOKEN.getCode());
-            response.getWriter().write(ErrorCode.CODE_INVALID_TOKEN.getMessage());
+            // 设置response状态
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setCharacterEncoding("UTF-8");
+            response.setContentType("application/json; charset=utf-8");
+
+            //返回的数据
+            JSONObject res = new JSONObject();
+            res.put("status_code", ErrorCode.CODE_INVALID_TOKEN.getCode());
+            res.put("status_msg", ErrorCode.CODE_INVALID_TOKEN.getMessage());
+            PrintWriter out = response.getWriter();
+            out.write(res.toString());
+            out.flush();
+            out.close();
+
             return false;
         }
 

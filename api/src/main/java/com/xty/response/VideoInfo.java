@@ -1,5 +1,6 @@
 package com.xty.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -14,6 +15,7 @@ public class VideoInfo {
     private String cover_url;
     private Long favorite_count;
     private Long comment_count;
+    @JsonProperty("is_favorite")
     private boolean is_favorite;
     private String title;
 }
