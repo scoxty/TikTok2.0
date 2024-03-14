@@ -116,7 +116,7 @@ public class UserController {
         HashMap<String, Object> resp = new HashMap<>();
 
         // 参数校验
-        if (userId == null || userId == "") {
+        if (userId == null || userId.equals("")) {
             resp.put("status_code", ErrorCode.CODE_INVALID_PARAM.getCode());
             resp.put("status_msg", ErrorCode.CODE_INVALID_PARAM.getMessage());
             return resp;

@@ -242,6 +242,4 @@ public class VideoController {
         String extension = fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
         return extension.matches("mp4|avi|mov|flv|wmv|mkv");
     }
-
-
 }

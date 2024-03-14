@@ -21,6 +21,7 @@ import java.util.Date;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -34,6 +35,8 @@ public class VideoConsumer implements RocketMQListener<MessageExt> {
     private Keys keysRedis;
     @Autowired
     private VideoServiceImpl videoService;
+    @Autowired
+    private ThreadPoolExecutor videoExecutor;
 
     @Override
     public void onMessage(MessageExt msg) {
@@ -66,29 +69,17 @@ public class VideoConsumer implements RocketMQListener<MessageExt> {
         videoMapper.insert(video);
 
         // 异步修改redis和bloom过滤器
-        ExecutorService executor = Executors.newFixedThreadPool(3);
         // 提交任务到线程池
-        executor.submit(()->{
+        videoExecutor.submit(()->{
             videoRedis.addVideo(video);
         });
-        executor.submit(()->{
+        videoExecutor.submit(()->{
             videoService.delLocalCache();
             keysRedis.delUserHashField(videoMsg.getUserId(), Keys.WORK_COUNT_FIELD);
         });
-        executor.submit(()->{
+        videoExecutor.submit(()->{
            BloomFilterUtils.insertAuthorId(videoMsg.getUserId());
         });
-        // 关闭执行器，等待任务完成
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                System.out.println("异步修改redis和bloom过滤器超时!");
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
 
         System.out.println("视频消息处理成功!");
     }

@@ -23,6 +23,7 @@ import com.xty.middleware.redis.Keys;
 import com.xty.middleware.redis.TokenManager;
 import com.xty.middleware.redis.UserInfo;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.redisson.Redisson;
@@ -34,10 +35,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 @DubboService
 @Service
@@ -46,6 +44,8 @@ public class UserServiceImpl implements UserService {
     private VideoService videoService;
     @DubboReference(check = false)
     private FavoriteService favoriteService;
+    @Autowired
+    private ThreadPoolExecutor userExecutor;
     @Autowired
     private UserMapper userMapper;
     @Autowired
@@ -117,7 +117,7 @@ public class UserServiceImpl implements UserService {
         // 添加到redis
         tokenManager.setToken(id, jwt);
         // 异步添加username到bloom过滤器
-        Executors.newSingleThreadExecutor().submit(()->{
+        userExecutor.submit(()->{
             BloomFilterUtils.insertUserName(name);
         });
 
@@ -218,41 +218,31 @@ public class UserServiceImpl implements UserService {
         boolean isFollow = false;
         ExecutorService executor = Executors.newFixedThreadPool(4);
         // TODO: 异步获取关注相关信息
-        Future<Long> favoriteCountFuture = executor.submit(() -> {
+        Future<Long> favoriteCountFuture = userExecutor.submit(() -> {
             GetUserFavoriteCountRequest userFavoriteCountRequest = GetUserFavoriteCountRequest.newBuilder()
                     .setUserId(to_user_id)
                     .build();
             return favoriteService.getUserFavoriteCount(userFavoriteCountRequest).getFavoriteCount();
         });
-        Future<Long> totalFavoriteCountFuture = executor.submit(() -> {
+        Future<Long> totalFavoriteCountFuture = userExecutor.submit(() -> {
             GetUserTotalFavoriteCountRequest totalFavoriteCountRequest = GetUserTotalFavoriteCountRequest.newBuilder()
                     .setUserId(to_user_id)
                     .build();
             return favoriteService.getUserTotalFavoriteCount(totalFavoriteCountRequest).getFavoriteCount();
         });
-        Future<Long> workCountFuture = executor.submit(() -> {
+        Future<Long> workCountFuture = userExecutor.submit(() -> {
             GetWorkCountRequest workCountRequest = GetWorkCountRequest.newBuilder()
                     .setUserId(to_user_id)
                     .build();
             return videoService.getWorkCount(workCountRequest).getWorkCount();
         });
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                log.error("异步获取video信息超时!");
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
 
         try {
-            favoriteCount = favoriteCountFuture.get();
-            totalFavorited = totalFavoriteCountFuture.get();
-            workCount = workCountFuture.get();
+            favoriteCount = favoriteCountFuture.get(5, TimeUnit.SECONDS);
+            totalFavorited = totalFavoriteCountFuture.get(5, TimeUnit.SECONDS);
+            workCount = workCountFuture.get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
-            log.error("获取用户信息异常: " + e.getMessage());
+            log.error("异步获取用户信息异常: " + e.getMessage());
         }
 
         User userInfo = User.newBuilder()
@@ -316,5 +306,18 @@ public class UserServiceImpl implements UserService {
         }
 
         return username;
+    }
+
+    @PreDestroy
+    public void destroy() {
+        userExecutor.shutdown();
+        try {
+            if (!userExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                userExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            userExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

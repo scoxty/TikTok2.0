@@ -6,14 +6,14 @@ public class Keys {
     // Video 相关常量
     public static final String VIDEO_KEY = "video";
     public static final String COMMENT_COUNT_FIELD = "commentCount";
-    public static final String VIDEO_FAVORITED_COUNT_FIELD = "favoritedCount";
+    public static final String VIDEO_FAVORITED_COUNT_FIELD = "videoFavoriteCount";
 
     // User 相关常量
     public static final String USER_KEY = "user";
     public static final String WORK_COUNT_FIELD = "workCount";
     public static final String NAME_FIELD = "name";
-    public static final String TOTAL_FAVORITE_FIELD = "totalFavorited";
-    public static final String FAVORITE_COUNT_FIELD = "favoriteCount";
+    public static final String TOTAL_FAVORITE_FIELD = "totalFavoriteCount";
+    public static final String FAVORITE_COUNT_FIELD = "userFavoriteCount";
 
     // List 类型相关常量
     public static final String FAVORITE_LIST = "favoriteList";

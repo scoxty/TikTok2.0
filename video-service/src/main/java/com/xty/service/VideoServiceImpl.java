@@ -21,6 +21,7 @@ import com.xty.middleware.redis.Keys;
 import com.xty.middleware.redis.VideoRedis;
 import com.xty.middleware.rocketmq.video.VideoMsg;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.apache.rocketmq.client.producer.SendResult;
@@ -57,6 +58,8 @@ public class VideoServiceImpl implements VideoService {
     private Keys keyRedis;
     @Autowired
     private Redisson redisson;
+    @Autowired
+    private ThreadPoolExecutor videoExecutor;
     private Cache<Long, Long> localCache = Caffeine.newBuilder()
             .maximumSize(100)
             .expireAfterAccess(100L, TimeUnit.SECONDS)
@@ -111,21 +114,20 @@ public class VideoServiceImpl implements VideoService {
             User author = null;
 
             // 异步获取相关信息
-            ExecutorService executor = Executors.newFixedThreadPool(4);
-            Future<User> userInfoFuture = executor.submit(() -> {
+            Future<User> userInfoFuture = videoExecutor.submit(() -> {
                 UserInfoRequest userInfoRequest = UserInfoRequest.newBuilder()
                         .setFromUserId(userId)
                         .setToUserId(videoPojo.getAuthorId())
                         .build();
                 return userService.getUserInfo(userInfoRequest).getUser();
             });
-            Future<Long> favoriteCountFuture = executor.submit(() -> {
+            Future<Long> favoriteCountFuture = videoExecutor.submit(() -> {
                 GetVideoFavoriteCountRequest videoFavoriteCountRequest = GetVideoFavoriteCountRequest.newBuilder()
                         .setVideoId(videoPojo.getId())
                         .build();
                 return favoriteService.getVideoFavoriteCount(videoFavoriteCountRequest).getFavoriteCount();
             });
-            Future<Boolean> isFavoriteFuture = executor.submit(() -> {
+            Future<Boolean> isFavoriteFuture = videoExecutor.submit(() -> {
                 IsUserFavoriteRequest isUserFavoriteRequest = IsUserFavoriteRequest.newBuilder()
                         .setUserId(userId)
                         .setVideoId(videoPojo.getId())
@@ -134,23 +136,13 @@ public class VideoServiceImpl implements VideoService {
             });
 
             //TODO: rpc调用获取commentCount
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                    log.error("异步获取video信息超时!");
-                    executor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
 
             try {
-                author = userInfoFuture.get();
-                favoriteCount = favoriteCountFuture.get();
-                isFavorite = isFavoriteFuture.get();
+                author = userInfoFuture.get(5, TimeUnit.SECONDS);
+                favoriteCount = favoriteCountFuture.get(5, TimeUnit.SECONDS);
+                isFavorite = isFavoriteFuture.get(5, TimeUnit.SECONDS);
             } catch (Exception e) {
-                log.error("获取视频信息异常: " + e.getMessage());
+                log.error("异步获取视频信息异常: " + e.getMessage());
             }
 
 
@@ -246,14 +238,13 @@ public class VideoServiceImpl implements VideoService {
             boolean isFavorite = false;
 
             // 异步获取相关信息
-            ExecutorService executor = Executors.newFixedThreadPool(2);
-            Future<Long> favoriteCountFuture = executor.submit(() -> {
+            Future<Long> favoriteCountFuture = videoExecutor.submit(() -> {
                 GetVideoFavoriteCountRequest videoFavoriteCountRequest = GetVideoFavoriteCountRequest.newBuilder()
                         .setVideoId(videoPojo.getId())
                         .build();
                 return favoriteService.getVideoFavoriteCount(videoFavoriteCountRequest).getFavoriteCount();
             });
-            Future<Boolean> isFavoriteFuture = executor.submit(() -> {
+            Future<Boolean> isFavoriteFuture = videoExecutor.submit(() -> {
                 IsUserFavoriteRequest isUserFavoriteRequest = IsUserFavoriteRequest.newBuilder()
                         .setUserId(from_user_id)
                         .setVideoId(videoPojo.getId())
@@ -261,22 +252,12 @@ public class VideoServiceImpl implements VideoService {
                 return favoriteService.isUserFavorite(isUserFavoriteRequest).getIsFavorite();
             });
             //TODO: rpc调用获取commentCount
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                    log.error("异步获取video信息超时!");
-                    executor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
 
             try {
-                favoriteCount = favoriteCountFuture.get();
-                isFavorite = isFavoriteFuture.get();
+                favoriteCount = favoriteCountFuture.get(5, TimeUnit.SECONDS);
+                isFavorite = isFavoriteFuture.get(5, TimeUnit.SECONDS);
             } catch (Exception e) {
-                log.error("获取视频信息失败: " + e.getMessage());
+                log.error("异步获取视频信息失败: " + e.getMessage());
             }
 
             Video video = Video.newBuilder()
@@ -333,7 +314,7 @@ public class VideoServiceImpl implements VideoService {
         Long workCount = videoRedis.getWorkCount(userId);
         if (workCount != null) {
             Long finalWorkCount = workCount;
-            Executors.newSingleThreadExecutor().submit(()->{
+            videoExecutor.submit(()->{
                 localCache.put(userId, finalWorkCount);
             });
             response = GetWorkCountResponse.newBuilder()
@@ -352,7 +333,7 @@ public class VideoServiceImpl implements VideoService {
             workCount = videoRedis.getWorkCount(userId);
             if (workCount != null) {
                 Long finalWorkCount = workCount;
-                Executors.newSingleThreadExecutor().submit(()->{
+                videoExecutor.submit(()->{
                     localCache.put(userId, finalWorkCount);
                 });
                 response = GetWorkCountResponse.newBuilder()
@@ -370,9 +351,9 @@ public class VideoServiceImpl implements VideoService {
             videoRedis.setWorkCount(userId, workCount);
             // 异步更新localCache和bloom
             Long finalWorkCount1 = workCount;
-            Executors.newSingleThreadExecutor().submit(()->{
-               localCache.put(userId, finalWorkCount1);
-               BloomFilterUtils.insertAuthorId(userId);
+            videoExecutor.submit(()->{
+                localCache.put(userId, finalWorkCount1);
+                BloomFilterUtils.insertAuthorId(userId);
             });
         } finally {
             redissonLock.unlock();
@@ -387,5 +368,18 @@ public class VideoServiceImpl implements VideoService {
 
     public void delLocalCache() {
         localCache.cleanUp();
+    }
+
+    @PreDestroy
+    public void destroy() {
+        videoExecutor.shutdown();
+        try {
+            if (!videoExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                videoExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            videoExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

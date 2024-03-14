@@ -58,6 +58,8 @@ public class FavoriteServiceImpl implements FavoriteService {
     private FavoriteRedis favoriteRedis;
     @Autowired
     private Redisson redisson;
+    @Autowired
+    private ThreadPoolExecutor favoriteExecutor;
 
     private static final Logger log = LoggerFactory.getLogger(FavoriteServiceImpl.class);
 
@@ -155,9 +157,8 @@ public class FavoriteServiceImpl implements FavoriteService {
             isFavorite = isLiked(to_user_id, videoId);
 
             // 异步获取其他相关信息
-            ExecutorService executor = Executors.newFixedThreadPool(1);
             // 获取视频作者信息
-            Future<UserInfoResponse> userInfoResponseFuture = executor.submit(() -> {
+            Future<UserInfoResponse> userInfoResponseFuture = favoriteExecutor.submit(() -> {
                 UserInfoRequest userInfoRequest = UserInfoRequest.newBuilder()
                         .setFromUserId(to_user_id)
                         .setToUserId(videoPojo.getAuthorId())
@@ -165,16 +166,6 @@ public class FavoriteServiceImpl implements FavoriteService {
                 return userService.getUserInfo(userInfoRequest);
             });
             //TODO: rpc调用获取评论数
-            executor.shutdown();
-            try {
-                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
-                    log.error("异步获取video信息超时!");
-                    executor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
 
             User author = getAuthorFromUserInfoResponseFuture(userInfoResponseFuture);
 
@@ -304,7 +295,6 @@ public class FavoriteServiceImpl implements FavoriteService {
                     // 获取上一次的状态，判断是否重复点赞和重复取消点赞
                     // status为true表示已点赞, false表示为未点赞
                     boolean status = checkRepeatAction(userId, videoId);
-                    System.out.println(status);
 
                     if (actionType == 1) {
                         if (status) {
@@ -367,8 +357,8 @@ public class FavoriteServiceImpl implements FavoriteService {
         if (actionType == 1) {
             favoriteRedis.addFavoriteCount(userId, authorId, videoId);
 
-            Executors.newSingleThreadExecutor().submit(()->{
-                // 更新bloom
+            // 异步更新bloom过滤器
+            favoriteExecutor.submit(()->{
                 BloomFilterUtils.insertIsFavorite(userId, videoId);
                 BloomFilterUtils.insertFavoriteVideoId(videoId);
             });
@@ -497,9 +487,9 @@ public class FavoriteServiceImpl implements FavoriteService {
     public User getAuthorFromUserInfoResponseFuture(Future<UserInfoResponse> userInfoResponseFuture) {
         com.xty.dubbo_gen.user.User user = null;
         try {
-            user = userInfoResponseFuture.get().getUser();
+            user = userInfoResponseFuture.get(5, TimeUnit.SECONDS).getUser();
         } catch (Exception e) {
-            log.error("获取视频作者信息异常: " + e.getMessage());
+            log.error("异步获取视频作者信息异常: " + e.getMessage());
         }
 
         User author = User.newBuilder()
