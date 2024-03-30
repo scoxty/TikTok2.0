@@ -1,17 +1,31 @@
 package com.xty.middleware.redis;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
+import io.vavr.control.Try;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 // TODO: 限流策略以及代码编写待优化
 @Component
 public class RatedLimiter {
     @Autowired
     private RedisTemplate redisTemplate;
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+    @Autowired
+    private RateLimiterRegistry rateLimiterRegistry;
+
+    private CircuitBreaker circuitBreaker;
+    private RateLimiter rateLimiter;
 
     // 使用 System.currentTimeMillis() 代替 time.Now
     private static final Long RESET_BUCKET_INTERNAL = 1000 * 60L; // 重置令牌桶的时间间隔为1min
@@ -125,25 +139,40 @@ public class RatedLimiter {
             "    return currentTokens\n" +
             "end\n";
 
+    @PostConstruct
+    public void init() {
+        circuitBreaker = circuitBreakerRegistry.circuitBreaker("redisCircuitBreaker");
+        rateLimiter = rateLimiterRegistry.rateLimiter("localRateLimiter");
+    }
+
     public boolean acquireBucketToken(String ip) {
-        String key = TOKEN_BUCKET + Keys.DELIMITER + ip;
+        // 使用CircuitBreaker进行熔断处理
+        return Try.ofSupplier(CircuitBreaker.decorateSupplier(circuitBreaker, () -> {
+                    String key = TOKEN_BUCKET + Keys.DELIMITER + ip;
 
-        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
-        script.setScriptText(lua);
-        script.setResultType(Long.class);
+                    DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+                    script.setScriptText(lua);
+                    script.setResultType(Long.class);
 
-        ArrayList<String> keys = new ArrayList<>();
-        keys.add(key);
+                    ArrayList<String> keys = new ArrayList<>();
+                    keys.add(key);
 
-        Long cnt = (Long) redisTemplate.execute(script,
-                keys,
-                INTERNAL_PER_PERMIT,
-                System.currentTimeMillis(),
-                INIT_TOKEN,
-                BUCKET_MAX_TOKEN,
-                RESET_BUCKET_INTERNAL);
+                    Long cnt = (Long) redisTemplate.execute(script,
+                            keys,
+                            INTERNAL_PER_PERMIT,
+                            System.currentTimeMillis(),
+                            INIT_TOKEN,
+                            BUCKET_MAX_TOKEN,
+                            RESET_BUCKET_INTERNAL);
 
-        return cnt > 0;
+                    return cnt > 0;
+                }))
+                // 使用RateLimit作为降级策略
+                .recover(throwable -> Try.ofSupplier(RateLimiter.decorateSupplier(rateLimiter, () -> {
+                    System.out.println("Fallback due to Redis failure, using local rate limiter.");
+                    return true;
+                })).getOrElse(false)) // 如果RateLimit也失败，请使用false作为默认恢复值
+                .get();
     }
 
 }

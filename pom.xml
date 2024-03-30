@@ -224,6 +224,13 @@
                 <artifactId>jaxb-runtime</artifactId>
                 <version>2.3.3</version>
             </dependency>
+
+            <!-- resilience4j -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-spring-boot2</artifactId>
+                <version>1.7.1</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
